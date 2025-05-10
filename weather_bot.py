@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Ключи API
 YANDEX_GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
-TELEGRAM_BOT_TOKEN = "8169674662:AAGKP5lBoeYudEHYW_nWKHW6jlue3xW4xT0"
+TELEGRAM_BOT_TOKEN = "бот_токен"
 
 
 class WeatherBot:
