@@ -1,12 +1,12 @@
-import logging
-import re
-import io
 from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes
 from weather_service import WeatherService
 from translation_service import TranslationService
 from fun_service import FunService
+from kino_service import KinoService
 from cat import get_random_cat
+import io
+import logging
 
 # Настройка логирования
 logging.basicConfig(
@@ -15,139 +15,140 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class MultiToolBot:
+# Ключи API
+YANDEX_GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
+TELEGRAM_BOT_TOKEN = "8169674662:AAGKP5lBoeYudEHYW_nWKHW6jlue3xW4xT0"
+
+
+class WeatherBot:
     def __init__(self):
-        self.weather_service = WeatherService("8013b162-6b42-4997-9691-77b7074026e0")
+        self.weather_service = WeatherService(YANDEX_GEOCODER_API_KEY)
         self.translation_service = TranslationService()
         self.fun_service = FunService()
-        self.user_modes = {}  # Словарь для хранения режимов работы пользователей
 
-    # Основные команды (ваш существующий функционал)
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /start - приветствие пользователя"""
         welcome_text = """
-🌟 *Добро пожаловать в MultiToolBot!* 🌟
+🌟 *Добро пожаловать в WeatherBot!* 🌟
 
-Я многофункциональный бот с новыми возможностями:
+Я многофункциональный бот, который может:
+🌤 Показывать погоду в любом месте
+🌍 Переводить текст между русским и английским
+😄 Развлекать интересными фактами
+🐈 Присылать милых котиков
 
-🌤 Погода: /map [город]
-🌍 Перевод: /pereen [текст], /pereru [текст]
-😄 Развлечения: /fact, /cat
-🧮 *Новый калькулятор*: /calc или "калькулятор"
+Для начала работы используйте команды:
+/map [город] - узнать погоду
+/pereen [текст] - перевести на английский
+/pereru [текст] - перевести на русский
+/fact - случайный факт
+/cat - фото котика
 
-Для полного списка команд введите /help
+📌 Для полного списка команд введите /help
 """
         await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /help - показывает список всех команд"""
         help_text = """
-🤖 *Доступные команды*:
-
-🧮 *Калькулятор*:
-/calc - Открыть калькулятор
-(или просто введите математическое выражение)
+🤖 *Доступные команды бота*:
 
 🌤 *Погода*:
-/map [место] - Узнать погоду
+/map [место] - Узнать погоду в указанном месте (например: /map Москва)
 
 🌍 *Переводчик*:
-/pereen [текст] - На английский
-/pereru [текст] - На русский
+/pereen [текст] - Перевести текст на английский
+/pereru [текст] - Перевести текст на русский
 
 😄 *Развлечения*:
-/fact - Случайный факт
-/cat - Фото котика
+/fact - Получить случайный интересный факт
+/cat - Получить случайное фото котика
 
 🆘 *Помощь*:
-/help - Список команд
-/start - Перезапустить бота
+/help - Показать это сообщение с описанием команд
+/start - Начать работу с ботом
 """
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
-    # Ваши существующие обработчики (map, pereen, pereru, fact, cat)
-    # ... (оставьте их без изменений, как в вашем исходном коде)
-    
-    # Новый функционал калькулятора
-    async def calc_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Активирует режим калькулятора"""
-        self.user_modes[update.effective_user.id] = 'calculator'
-        await update.message.reply_text(
-            "🧮 Режим калькулятора. Введите математическое выражение (например: 2+2*3)\n"
-            "Используйте /exit для выхода из режима",
-            reply_markup=self._get_calc_keyboard()
-        )
+    async def map_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /map с параметром"""
+        if not context.args:
+            await update.message.reply_text("Пожалуйста, укажите место после команды, например: /map Москва")
+            return
 
-    async def handle_calculation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает математические выражения"""
-        user_id = update.effective_user.id
-        
-        # Проверяем, находится ли пользователь в режиме калькулятора
-        # или просто ввел математическое выражение
-        if (user_id not in self.user_modes or 
-            self.user_modes[user_id] != 'calculator') and not self._is_math_expression(update.message.text):
+        location = ' '.join(context.args)
+        await self.process_location(update, location)
+
+    async def pereen_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /pereen для перевода текста на английский"""
+        if not context.args:
+            await update.message.reply_text(
+                "Пожалуйста, укажите текст для перевода после команды, например: /pereen привет")
             return
-        
-        text = update.message.text.strip().lower()
-        
-        if text in ('exit', '/exit', 'выход'):
-            self.user_modes.pop(user_id, None)
-            await update.message.reply_text("Выход из режима калькулятора", reply_markup=None)
+
+        text = ' '.join(context.args)
+        translated = self.translation_service.translate_text(text, target_lang='en')
+        await update.message.reply_text(f"Перевод: {translated}")
+
+    async def pereru_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /pereru для перевода текста на русский"""
+        if not context.args:
+            await update.message.reply_text(
+                "Пожалуйста, укажите текст для перевода после команды, например: /pereru hello")
             return
-        
+
+        text = ' '.join(context.args)
+        translated = self.translation_service.translate_text(text, target_lang='ru')
+        await update.message.reply_text(f"Перевод: {translated}")
+
+    async def fact_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /fact для получения случайного факта"""
+        fact = self.fun_service.get_random_fact()
+        await update.message.reply_text(f"Интересный факт: {fact}")
+
+    async def cat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /cat для отправки случайного котика"""
         try:
-            # Безопасная проверка выражения
-            if not self._is_safe_expression(text):
-                await update.message.reply_text("⚠️ Используйте только цифры и операторы (+-*/).")
-                return
-                
-            result = eval(text)  # Важно: в продакшне замените на безопасный парсер!
-            await update.message.reply_text(f"✅ Результат: {result}")
-        except ZeroDivisionError:
-            await update.message.reply_text("❌ Ошибка: деление на ноль!")
+            cat_image = get_random_cat()
+            photo_stream = io.BytesIO(cat_image)
+            photo_stream.name = 'cat.jpg'
+            await update.message.reply_photo(photo=InputFile(photo_stream))
         except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка: {e}")
+            logger.error(f"Error sending cat: {e}")
+            await update.message.reply_text("Не удалось загрузить котика 😿 Попробуйте позже")
 
-    # Вспомогательные методы для калькулятора
-    def _get_calc_keyboard(self):
-        """Создает клавиатуру для калькулятора"""
-        buttons = [
-            "7", "8", "9", "/",
-            "4", "5", "6", "*",
-            "1", "2", "3", "-",
-            "0", ".", "=", "+",
-            "C", "(", ")", "exit"
-        ]
-        keyboard = []
-        for i in range(0, len(buttons), 4):
-            keyboard.append(buttons[i:i+4])
-        return {'keyboard': keyboard, 'resize_keyboard': True}
+    async def process_location(self, update: Update, location: str):
+        """Основная логика обработки локации"""
+        try:
+            latitude, longitude = await self.weather_service.get_coordinates(location)
+            if not latitude or not longitude:
+                await update.message.reply_text("Не удалось определить координаты для указанного места.")
+                return
 
-    def _is_math_expression(self, text):
-        """Проверяет, является ли текст математическим выражением"""
-        return bool(re.match(r'^[\d+\-*/().\s=]+$', text.strip()))
+            weather_data = await self.weather_service.get_weather(latitude, longitude)
+            message = self.weather_service.format_weather_message(weather_data)
+            await update.message.reply_text(message)
 
-    def _is_safe_expression(self, text):
-        """Проверка безопасности выражения"""
-        return bool(re.fullmatch(r'^[\d+\-*/().\s=]+$', text.strip()))
+        except Exception as e:
+            logger.error(f"Error processing location: {e}")
+            await update.message.reply_text("Произошла ошибка при обработке запроса. Попробуйте другой адрес.")
 
     def run(self):
-        """Запуск бота со всеми обработчиками"""
-        application = Application.builder().token("8169674662:AAGKP5lBoeYudEHYW_nWKHW6jlue3xW4xT0").build()
+        """Запуск бота"""
+        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-        # Ваши существующие обработчики команд
+        # Регистрируем все обработчики команд
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("map", self.map_command))
-        application.add_handler(CommandHandler("pereen", self.pereen_command))
-        application.add_handler(CommandHandler("pereru", self.pereru_command))
+        application.add_handler(CommandHandler("pereen", self.pereen_command))  # Изменено с pere_en
+        application.add_handler(CommandHandler("pereru", self.pereru_command))  # Изменено с pere_ru
         application.add_handler(CommandHandler("fact", self.fact_command))
         application.add_handler(CommandHandler("cat", self.cat_command))
-        
-        # Новые обработчики для калькулятора
-        application.add_handler(CommandHandler("calc", self.calc_command))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_calculation))
 
         application.run_polling()
 
+
 if __name__ == "__main__":
-    bot = MultiToolBot()
+    bot = WeatherBot()
     bot.run()
