@@ -1,9 +1,12 @@
 from telegram import Update, InputFile
+import pytz
+from telegram.ext import Defaults
 from telegram.ext import Application, CommandHandler, ContextTypes
 from weather_service import WeatherService
 from translation_service import TranslationService
 from fun_service import FunService
-from kino_service import KinoService
+from calculator_service import CalculatorService
+from movie_service import MovieService
 from cat import get_random_cat
 import io
 import logging
@@ -18,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Ключи API
 YANDEX_GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
 TELEGRAM_BOT_TOKEN = "8169674662:AAGKP5lBoeYudEHYW_nWKHW6jlue3xW4xT0"
+TMDB_API_KEY = 'dd60521'
 
 
 class WeatherBot:
@@ -25,6 +29,8 @@ class WeatherBot:
         self.weather_service = WeatherService(YANDEX_GEOCODER_API_KEY)
         self.translation_service = TranslationService()
         self.fun_service = FunService()
+        self.calculator = CalculatorService()
+        self.movie_service = MovieService(TMDB_API_KEY) 
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start - приветствие пользователя"""
@@ -52,6 +58,12 @@ class WeatherBot:
         """Обработчик команды /help - показывает список всех команд"""
         help_text = """
 🤖 *Доступные команды бота*:
+
+🧮 *Калькулятор*:
+/calc [выражение] - Вычислить математическое выражение
+
+🎬 *Фильмы*:
+/movie [название] - Найти информацию о фильме
 
 🌤 *Погода*:
 /map [место] - Узнать погоду в указанном месте (например: /map Москва)
@@ -133,19 +145,61 @@ class WeatherBot:
             logger.error(f"Error processing location: {e}")
             await update.message.reply_text("Произошла ошибка при обработке запроса. Попробуйте другой адрес.")
 
+    async def calc_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /calc"""
+        if not context.args:
+            await update.message.reply_text("Введите выражение для расчета, например: /calc 2+2*3")
+            return
+
+        expression = ' '.join(context.args)
+        result = self.calculator.calculate(expression)
+        await update.message.reply_text(result)
+
+    async def movie_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /movie"""
+        if not context.args:
+            await update.message.reply_text("Укажите название фильма, например: /movie Матрица")
+            return
+        
+        query = ' '.join(context.args)
+        movie = self.movie_service.search_movie(query)
+        
+        if not movie:
+            await update.message.reply_text("Фильм не найден")
+            return
+        
+        message = (
+            f"🎬 *{movie['title']}* ({movie['year']})\n"
+            f"⭐ Рейтинг: {movie['rating']}/10\n"
+            f"📝 {movie['overview']}"
+        )
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+        if movie.get('poster'):
+            await update.message.reply_photo(movie['poster'])
+
+
     def run(self):
         """Запуск бота"""
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        # Указываем часовой пояс явно
+        defaults = Defaults(tzinfo=pytz.timezone('Europe/Moscow'))  # Укажите нужный часовой пояс
+        
+        application = (
+            Application.builder()
+            .token(TELEGRAM_BOT_TOKEN)
+            .defaults(defaults)
+            .build()
+        )
 
-        # Регистрируем все обработчики команд
+        # Регистрируем обработчики команд
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("map", self.map_command))
-        application.add_handler(CommandHandler("pereen", self.pereen_command))  # Изменено с pere_en
-        application.add_handler(CommandHandler("pereru", self.pereru_command))  # Изменено с pere_ru
+        application.add_handler(CommandHandler("pereen", self.pereen_command))
+        application.add_handler(CommandHandler("pereru", self.pereru_command))
         application.add_handler(CommandHandler("fact", self.fact_command))
         application.add_handler(CommandHandler("cat", self.cat_command))
-
+        
         application.run_polling()
 
 
