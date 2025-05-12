@@ -10,6 +10,7 @@ from movie_service import MovieService
 from cat import get_random_cat
 import io
 import logging
+import requests
 
 # Настройка логирования
 logging.basicConfig(
@@ -20,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Ключи API
 YANDEX_GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
-TELEGRAM_BOT_TOKEN = "8169674662:AAGKP5lBoeYudEHYW_nWKHW6jlue3xW4xT0"
+TELEGRAM_BOT_TOKEN = "7920203153:AAHyEVeHPWU-vwoYviguKUk7IWJdsNdQSik"
 TMDB_API_KEY = 'dd60521'
+OMDB_API_KEY = "dd60521"
 
 
 class WeatherBot:
@@ -30,7 +32,7 @@ class WeatherBot:
         self.translation_service = TranslationService()
         self.fun_service = FunService()
         self.calculator = CalculatorService()
-        self.movie_service = MovieService(TMDB_API_KEY) 
+        self.movie_service = MovieService(TMDB_API_KEY)
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start - приветствие пользователя"""
@@ -40,6 +42,8 @@ class WeatherBot:
 Я многофункциональный бот, который может:
 🌤 Показывать погоду в любом месте
 🌍 Переводить текст между русским и английским
+🎬 Искать информацию о фильмах
+🧮 Выполнять математические расчеты
 😄 Развлекать интересными фактами
 🐈 Присылать милых котиков
 
@@ -47,6 +51,8 @@ class WeatherBot:
 /map [город] - узнать погоду
 /pereen [текст] - перевести на английский
 /pereru [текст] - перевести на русский
+/movie [название] - найти информацию о фильме
+/calc [выражение] - вычислить выражение
 /fact - случайный факт
 /cat - фото котика
 
@@ -63,7 +69,7 @@ class WeatherBot:
 /calc [выражение] - Вычислить математическое выражение
 
 🎬 *Фильмы*:
-/movie [название] - Найти информацию о фильме
+/movie [название] - Найти информацию о фильме (например: /movie Матрица)
 
 🌤 *Погода*:
 /map [место] - Узнать погоду в указанном месте (например: /map Москва)
@@ -156,34 +162,49 @@ class WeatherBot:
         await update.message.reply_text(result)
 
     async def movie_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик команды /movie"""
+        """Обработчик команды /movie - поиск информации о фильме (как в первом боте)"""
         if not context.args:
             await update.message.reply_text("Укажите название фильма, например: /movie Матрица")
             return
-        
-        query = ' '.join(context.args)
-        movie = self.movie_service.search_movie(query)
-        
-        if not movie:
-            await update.message.reply_text("Фильм не найден")
-            return
-        
-        message = (
-            f"🎬 *{movie['title']}* ({movie['year']})\n"
-            f"⭐ Рейтинг: {movie['rating']}/10\n"
-            f"📝 {movie['overview']}"
-        )
-        
-        await update.message.reply_text(message, parse_mode="Markdown")
-        if movie.get('poster'):
-            await update.message.reply_photo(movie['poster'])
 
+        movie_title = ' '.join(context.args)
+        url = f"http://www.omdbapi.com/?apikey={OMDB_API_KEY}&t={movie_title}"
+
+        try:
+            response = requests.get(url)
+            data = response.json()
+
+            if data.get("Response") == "True":
+                # Формируем информацию о фильме
+                info = (
+                    f"🎥 *{data.get('Title', 'Нет данных')}* ({data.get('Year', 'Нет данных')})\n"
+                    f"⭐ *IMDb:* {data.get('imdbRating', 'Нет данных')}\n"
+                    f"🎭 *Жанр:* {data.get('Genre', 'Нет данных')}\n"
+                    f"📅 *Дата выхода:* {data.get('Released', 'Нет данных')}\n"
+                    f"📝 *Описание:* {data.get('Plot', 'Нет данных')}"
+                )
+
+                # Отправляем постер
+                if data.get("Poster") and data["Poster"] != "N/A":
+                    await update.message.reply_photo(
+                        photo=data["Poster"],
+                        caption=info,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await update.message.reply_text(info, parse_mode="Markdown")
+            else:
+                await update.message.reply_text("Фильм не найден. Попробуйте другое название.")
+
+        except Exception as e:
+            await update.message.reply_text("⚠️ Произошла ошибка при поиске. Попробуйте позже.")
+            logger.error(f"Ошибка при поиске фильма: {e}")
 
     def run(self):
         """Запуск бота"""
         # Указываем часовой пояс явно
-        defaults = Defaults(tzinfo=pytz.timezone('Europe/Moscow'))  # Укажите нужный часовой пояс
-        
+        defaults = Defaults(tzinfo=pytz.timezone('Europe/Moscow'))
+
         application = (
             Application.builder()
             .token(TELEGRAM_BOT_TOKEN)
@@ -199,7 +220,9 @@ class WeatherBot:
         application.add_handler(CommandHandler("pereru", self.pereru_command))
         application.add_handler(CommandHandler("fact", self.fact_command))
         application.add_handler(CommandHandler("cat", self.cat_command))
-        
+        application.add_handler(CommandHandler("calc", self.calc_command))
+        application.add_handler(CommandHandler("movie", self.movie_command))
+
         application.run_polling()
 
 
