@@ -26,7 +26,7 @@ TMDB_API_KEY = 'dd60521'
 OMDB_API_KEY = "dd60521"
 
 
-class WeatherBot:
+class MultiTulBot:
     def __init__(self):
         self.weather_service = WeatherService(YANDEX_GEOCODER_API_KEY)
         self.translation_service = TranslationService()
@@ -37,7 +37,7 @@ class WeatherBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start - приветствие пользователя"""
         welcome_text = """
-🌟 *Добро пожаловать в WeatherBot!* 🌟
+🌟 *Добро пожаловать в MultiTulBot!* 🌟
 
 Я многофункциональный бот, который может:
 🌤 Показывать погоду в любом месте
@@ -227,5 +227,5 @@ class WeatherBot:
 
 
 if __name__ == "__main__":
-    bot = WeatherBot()
+    bot = MultiTulBot()
     bot.run()
